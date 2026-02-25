@@ -1,4 +1,5 @@
 import os
+import sys
 import heapq
 from collections import Counter
 import struct
@@ -201,6 +202,25 @@ def compress_file(in_path: str, out_path: str) -> None:
     with open(out_path, "wb") as f:
         f.write(blob)
 
+    original_size = os.path.getsize(in_path)
+    compressed_size = os.path.getsize(out_path)
+
+    if original_size > 0:
+        ratio = compressed_size / original_size
+        reduction_percent = (
+            (original_size - compressed_size) / original_size) * 100
+    else:
+        ratio = 0.0
+        reduction_percent = 0.0
+
+    print("Compression complete ✅")
+    print(f"Input:  {in_path}")
+    print(f"Output: {out_path}")
+    print(f"Original size:   {original_size} bytes")
+    print(f"Compressed size: {compressed_size} bytes")
+    print(f"Compression ratio: {ratio:.3f}")
+    print(f"Size reduction: {reduction_percent:.2f}%")
+
 
 def decompress_file(in_path: str, out_path: str) -> None:
     # Read the entire file as bytes
@@ -214,23 +234,37 @@ def decompress_file(in_path: str, out_path: str) -> None:
     with open(out_path, "wb") as f:
         f.write(data)
 
+    print("Decompression complete ✅")
+    print(f"Input:  {in_path}")
+    print(f"Output: {out_path}")
+    print(f"Recovered size: {os.path.getsize(out_path)} bytes")
+
+
+def _print_usage() -> None:
+    prog = os.path.basename(sys.argv[0])
+    print("Usage:")
+    print(f"  python {prog} c <input_file> <output_file>   # compress")
+    print(f"  python {prog} d <input_file> <output_file>   # decompress")
+    print("")
+    print("Examples:")
+    print(f"  python {prog} c input.txt output.ssc")
+    print(f"  python {prog} d output.ssc recovered.txt")
+
 
 if __name__ == "__main__":
-    compress_file("input.txt", "input.ssctg")
-    decompress_file("input.ssctg", "recovered.txt")
+    if len(sys.argv) != 4:
+        _print_usage()
+        raise SystemExit(2)
 
-    with open("input.txt", "rb") as f1, open("recovered.txt", "rb") as f2:
-        assert f1.read() == f2.read()
-        f1.close()
-        f2.close()
-    print("Compression complete ✅")
+    mode = sys.argv[1].lower()
+    in_path = sys.argv[2]
+    out_path = sys.argv[3]
 
-    f1_size = os.path.getsize("input.txt")
-    f2_size = os.path.getsize("input.ssctg")
-
-    ratio = f2_size / f1_size
-    reduction = ((f1_size - f2_size) / f1_size) * 100
-    print(f"Original Size: {f1_size} bytes")
-    print(f"Compressed Size: {f2_size} bytes")
-    print(f"Compression Ratio: {ratio:.3f}")
-    print(f"Size reduction: {reduction:.2f}%")
+    if mode == "c":
+        compress_file(in_path, out_path)
+    elif mode == "d":
+        decompress_file(in_path, out_path)
+    else:
+        print(f"Unkown mode: {mode!r}")
+        _print_usage()
+        raise SystemExit(2)

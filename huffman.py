@@ -1,5 +1,8 @@
 import heapq
 from collections import Counter
+import struct
+
+MAGIC = b"SSC0"
 
 
 def pack_bits(bitstring: str):
@@ -23,23 +26,62 @@ def unpack_bits(data: bytes, pad_bits: int):
     return bits
 
 
-def huffman_encode(text):
+def serialize_codes(codes: dict[int, str]) -> bytes:
+    items = list(codes.items())
+    out = bytearray()
+
+    out += struct.pack(">H", len(items))
+
+    for sym, bitstr in items:
+        code_len = len(bitstr)
+        code_bytes, _ = pack_bits(bitstr)
+        nbytes = (code_len + 7) // 8  # ceil(code_len / 8)
+
+        out += struct.pack("B", sym)
+        out += struct.pack("B", code_len)
+        out += code_bytes[:nbytes]
+
+    return bytes(out)
+
+
+def deserialize_codes(blob: bytes, offset: int = 0):
+    num = struct.unpack_from(">H", blob, offset)[0]
+    offset += 2
+
+    codes = {}
+
+    for _ in range(num):
+        sym = blob[offset]
+        code_len = blob[offset + 1]
+        offset += 2
+
+        nbytes = (code_len + 7) // 8
+        raw = blob[offset: offset + nbytes]
+        offset += nbytes
+
+        bitstr = "".join(f"{b:08b}" for b in raw)[:code_len]
+        codes[sym] = bitstr
+
+    return codes, offset
+
+
+def huffman_encode(data: bytes):
 
     class Node:
-        def __init__(self, n, val='internal'):
+        def __init__(self, n, val='internal', left=None, right=None):
             self.n = n
             self.val = val
-            self.left = None
-            self.right = None
+            self.left = left
+            self.right = right
 
         def __lt__(self, other):
             return self.n < other.n
 
-    if not text:
-        return "", {}
+    if not data:
+        return b"", {}, 0, 0
 
     codes = {}
-    originalLen = len(text)
+    original_len = len(data)
 
     def preOrder(node, curr):
         if not node:
@@ -52,7 +94,7 @@ def huffman_encode(text):
         preOrder(node.left, curr + '0')
         preOrder(node.right, curr + '1')
 
-    freq = Counter(text)
+    freq = Counter(data)
 
     heap = [Node(v, k) for k, v in freq.items()]
     heapq.heapify(heap)
@@ -60,43 +102,43 @@ def huffman_encode(text):
     if len(heap) == 1:
         only = heap[0].val
         codes = {only: "0"}
-        encoded = "0" * originalLen
-        return encoded, codes
+        encoded_bits = "0" * original_len
+        packed, pad_bits = pack_bits(encoded_bits)
+        return packed, codes, original_len, pad_bits
 
     while len(heap) > 1:
         left = heapq.heappop(heap)
 
         right = heapq.heappop(heap)
 
-        newNode = Node(left.n + right.n)
-        newNode.left, newNode.right = left, right
+        newNode = Node(left.n + right.n, None, left, right)
         heapq.heappush(heap, newNode)
 
     root = heapq.heappop(heap)
 
     preOrder(root, "")
 
-    encoded = "".join(codes[c] for c in text)
+    encoded = "".join(codes[b] for b in data)
+
     packed, pad_bits = pack_bits(encoded)
 
-    return packed, codes, originalLen, pad_bits
+    return packed, codes, original_len, pad_bits
 
 
 def huffman_decode(packed, codes, original_len=None, pad_bits=0):
     if not codes:
-        return ""
+        return b""
 
     encoded = unpack_bits(packed, pad_bits)
 
+    # reverse map
     rev = {bitstr: sym for sym, bitstr in codes.items()}
 
     if len(rev) == 1:
         sym = next(iter(rev.values()))
-        if original_len is None:
-            return sym * len(encoded)
-        return sym * original_len
+        return bytes([sym]) * original_len
 
-    out = []
+    out = bytearray()
     out_len = 0
     buf = ""
     for bit in encoded:
@@ -109,17 +151,45 @@ def huffman_decode(packed, codes, original_len=None, pad_bits=0):
             if original_len and out_len == original_len:
                 break
 
-    if not original_len and buf != "":
+    if out_len != original_len:
         raise ValueError(
-            "Invalide encoded bitstream: leftover bits do not form a codeword")
+            "Decode Failed: did not produce expected number of bytes")
 
-    return "".join(out)
+    return bytes(out)
 
 
-text = "Saurav Singh Chandel"
-packed, codes, og, pad_bits = huffman_encode(text)
-print(packed)
-print("#####################################")
-decoded = huffman_decode(packed, codes, og, pad_bits)
+def compress_bytes(data: bytes) -> bytes:
+    packed, codes, original_len, pad_bits = huffman_encode(data)
 
-print(decoded)
+    codes_blob = serialize_codes(codes)
+
+    header = bytearray()
+    header += MAGIC
+    header += struct.pack(">Q", original_len)
+    header += struct.pack("B", pad_bits)
+    header += codes_blob
+
+    return bytes(header) + packed
+
+
+def decompress_bytes(blob: bytes) -> bytes:
+    if blob[:4] != MAGIC:
+        raise ValueError("Not a valid SSC0 blob")
+
+    original_len = struct.unpack_from(">Q", blob[4:12])[0]
+    pad_bits = blob[12]
+
+    offset = 13  # 4 (MAGIC) + 8 (original_len) + 1 (pad_bits)
+
+    codes, offset = deserialize_codes(blob, offset)
+
+    packed = blob[offset:]
+
+    return huffman_decode(packed, codes, original_len, pad_bits)
+
+
+data = b"Saurav Singh Chandel"
+blob = compress_bytes(data)
+recovered = decompress_bytes(blob)
+
+assert recovered == data

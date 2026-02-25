@@ -1,3 +1,4 @@
+import os
 import heapq
 from collections import Counter
 import struct
@@ -188,8 +189,48 @@ def decompress_bytes(blob: bytes) -> bytes:
     return huffman_decode(packed, codes, original_len, pad_bits)
 
 
-data = b"Saurav Singh Chandel"
-blob = compress_bytes(data)
-recovered = decompress_bytes(blob)
+def compress_file(in_path: str, out_path: str) -> None:
+    # Read the entire file as bytes
+    with open(in_path, "rb") as f:
+        data = f.read()
 
-assert recovered == data
+    # Compress the bytes into single blob
+    blob = compress_bytes(data)
+
+    # Write the compressed blob to disk
+    with open(out_path, "wb") as f:
+        f.write(blob)
+
+
+def decompress_file(in_path: str, out_path: str) -> None:
+    # Read the entire file as bytes
+    with open(in_path, "rb") as f:
+        blob = f.read()
+
+    # Compress the bytes into single blob
+    data = decompress_bytes(blob)
+
+    # Write the compressed blob to disk
+    with open(out_path, "wb") as f:
+        f.write(data)
+
+
+if __name__ == "__main__":
+    compress_file("input.txt", "input.ssctg")
+    decompress_file("input.ssctg", "recovered.txt")
+
+    with open("input.txt", "rb") as f1, open("recovered.txt", "rb") as f2:
+        assert f1.read() == f2.read()
+        f1.close()
+        f2.close()
+    print("Compression complete ✅")
+
+    f1_size = os.path.getsize("input.txt")
+    f2_size = os.path.getsize("input.ssctg")
+
+    ratio = f2_size / f1_size
+    reduction = ((f1_size - f2_size) / f1_size) * 100
+    print(f"Original Size: {f1_size} bytes")
+    print(f"Compressed Size: {f2_size} bytes")
+    print(f"Compression Ratio: {ratio:.3f}")
+    print(f"Size reduction: {reduction:.2f}%")
